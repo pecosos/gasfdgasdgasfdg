@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Duelo: Triángulo vs 2 Óvalos (Movimiento hacia adelante)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: #0f172a;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: system-ui, 'Segoe UI', monospace;
+        }
+
+        .game-wrapper {
+            background: #1e293b;
+            padding: 1.5rem;
+            border-radius: 2rem;
+            box-shadow: 0 20px 35px rgba(0,0,0,0.3);
+        }
+
+        .canvas-container {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        canvas {
+            display: block;
+            background-color: #0f172a;
+            border-radius: 1rem;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+            cursor: crosshair;
+        }
+
+        .left-canvas {
+            background: #0a0f1e;
+        }
+
+        .right-canvas {
+            background: #0a0f1e;
+        }
+
+        .info-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 1rem;
+            gap: 1rem;
+            flex-wrap: wrap;
+            padding: 0.5rem 1rem;
+            background: #334155;
+            border-radius: 2rem;
+        }
+
+        .lives {
+            display: flex;
+            gap: 0.5rem;
+            background: #1e293b;
+            padding: 0.3rem 1rem;
+            border-radius: 2rem;
+        }
+
+        button {
+            background: #ef4444;
+            border: none;
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+            font-family: inherit;
+            padding: 0.4rem 1.2rem;
+            border-radius: 2rem;
+            transition: 0.2s;
+        }
+
+        button:hover {
+            background: #dc2626;
+            transform: scale(1.02);
+        }
+
+        .info-text {
+            color: #94a3b8;
+            font-size: 0.75rem;
+            text-align: center;
+            margin-top: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+<div>
+    <div class="game-wrapper">
+        <div class="canvas-container">
+            <canvas id="leftCanvas" width="500" height="500" style="width:500px; height:500px;" class="left-canvas"></canvas>
+            <canvas id="rightCanvas" width="350" height="500" style="width:350px; height:500px;" class="right-canvas"></canvas>
+        </div>
+        <div class="info-panel">
+            <div class="lives" id="livesDisplay">❤️ ❤️ ❤️</div>
+            <div class="status" id="gameStatusText">🎮 En juego</div>
+            <button id="resetButton">🔄 Reiniciar todo</button>
+        </div>
+        <div class="info-text">
+            ← WASD mueve TRIÁNGULO | Óvalos SOLO avanzan hacia donde apuntan (NO te persiguen directamente)<br>
+            Óvalo ROJO: giro rápido | Óvalo MORADO: más RÁPIDO pero gira más LENTO<br>
+            → BOLAS: Click para subirlas | 💀 Fallar en cualquier lado = GAME OVER 💀
+        </div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        // ========== CANVAS IZQUIERDO ==========
+        const leftCanvas = document.getElementById('leftCanvas');
+        const leftCtx = leftCanvas.getContext('2d');
+        leftCanvas.width = 500;
+        leftCanvas.height = 500;
+
+        let globalGameOver = false;
+
+        // JUGADOR
+        let player = {
+            x: 250,
+            y: 250,
+            angle: 0,
+            radius: 18,
+            speed: 3.8,
+            lives: 3
+        };
+
+        // ÓVALO 1 (ROJO) - Normal, giro rápido
+        let enemy1 = {
+            x: 400,
+            y: 100,
+            angle: 0,
+            radius: 20,
+            rotationDelay: 0.07,     // gira rápido
+            speed: 1.5,              // velocidad hacia adelante
+            targetAngle: 0,
+            color: "#ef4444"
+        };
+
+        // ÓVALO 2 (MORADO) - Más rápido, pero gira más lento
+        let enemy2 = {
+            x: 100,
+            y: 400,
+            angle: 0,
+            radius: 13,
+            rotationDelay: 0.025,    // gira más lento (más delay)
+            speed: 2.5,              // más rápido hacia adelante
+            targetAngle: 0,
+            color: "#a855f7"
+        };
+
+        let enemies = [enemy1, enemy2];
+
+        // Controles WASD
+        const keys = { w: false, s: false, a: false, d: false };
+        let gameActiveLeft = true;
+        let invincibilityFrames = 0;
+        const INVINCIBLE_DURATION = 45;
+
+        // ========== MOVIMIENTO DEL JUGADOR ==========
+        function updatePlayerMovement() {
+            if (!gameActiveLeft || globalGameOver) return;
+            let moveX = 0, moveY = 0;
+            if (keys.w) moveY -= 1;
+            if (keys.s) moveY += 1;
+            if (keys.a) moveX -= 1;
+            if (keys.d) moveX += 1;
+            
+            if (moveX !== 0 || moveY !== 0) {
+                const len = Math.hypot(moveX, moveY);
+                moveX /= len;
+                moveY /= len;
+                player.angle = Math.atan2(moveY, moveX);
+            }
+            
+            player.x += moveX * player.speed;
+            player.y += moveY * player.speed;
+            
+            player.x = Math.min(Math.max(player.x, player.radius + 5), leftCanvas.width - player.radius - 5);
+            player.y = Math.min(Math.max(player.y, player.radius + 5), leftCanvas.height - player.radius - 5);
+        }
+
+        // ========== ROTACIÓN DEL ENEMIGO (apunta al jugador con delay) ==========
+        function updateEnemyRotation(enemy) {
+            const dx = player.x - enemy.x;
+            const dy = player.y - enemy.y;
+            const desiredAngle = Math.atan2(dy, dx);
+            enemy.targetAngle = desiredAngle;
+            
+            let angleDiff = enemy.targetAngle - enemy.angle;
+            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+            
+            enemy.angle += angleDiff * enemy.rotationDelay;
+            while (enemy.angle > Math.PI) enemy.angle -= Math.PI * 2;
+            while (enemy.angle < -Math.PI) enemy.angle += Math.PI * 2;
+        }
+
+        // ========== MOVIMIENTO DEL ENEMIGO: SOLO HACIA ADELANTE (hacia donde apunta) ==========
+        function updateEnemyMovement(enemy) {
+            if (!gameActiveLeft || globalGameOver) return;
+            // AVANZA solo en la dirección de su ángulo actual
+            enemy.x += Math.cos(enemy.angle) * enemy.speed;
+            enemy.y += Math.sin(enemy.angle) * enemy.speed;
+            
+            // Rebote en bordes (choca y cambia dirección)
+            if (enemy.x - enemy.radius < 0) {
+                enemy.x = enemy.radius;
+                enemy.angle = Math.PI - enemy.angle;  // rebote horizontal
+            }
+            if (enemy.x + enemy.radius > leftCanvas.width) {
+                enemy.x = leftCanvas.width - enemy.radius;
+                enemy.angle = Math.PI - enemy.angle;
+            }
+            if (enemy.y - enemy.radius < 0) {
+                enemy.y = enemy.radius;
+                enemy.angle = -enemy.angle;  // rebote vertical
+            }
+            if (enemy.y + enemy.radius > leftCanvas.height) {
+                enemy.y = leftCanvas.height - enemy.radius;
+                enemy.angle = -enemy.angle;
+            }
+            
+            // Normalizar ángulo después de rebotes
+            while (enemy.angle > Math.PI) enemy.angle -= Math.PI * 2;
+            while (enemy.angle < -Math.PI) enemy.angle += Math.PI * 2;
+        }
+
+        // ========== COLISIÓN (pérdida de vida) ==========
+        function handleCollisions() {
+            if (!gameActiveLeft || globalGameOver) return;
+            if (invincibilityFrames > 0) {
+                invincibilityFrames--;
+                return;
+            }
+            
+            for (let enemy of enemies) {
+                const dx = player.x - enemy.x;
+                const dy = player.y - enemy.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist < player.radius + enemy.radius) {
+                    player.lives--;
+                    invincibilityFrames = INVINCIBLE_DURATION;
+                    updateLivesUI();
+                    
+                    if (player.lives <= 0) {
+                        player.lives = 0;
+                        gameActiveLeft = false;
+                        triggerGlobalGameOver("💀 GAME OVER - Te atraparon 💀");
+                    } else {
+                        // Rebote al recibir daño
+                        const angle = Math.atan2(dy, dx);
+                        const knockback = 25;
+                        player.x -= Math.cos(angle) * knockback;
+                        player.y -= Math.sin(angle) * knockback;
+                        enemy.x += Math.cos(angle) * knockback;
+                        enemy.y += Math.sin(angle) * knockback;
+                        
+                        player.x = Math.min(Math.max(player.x, player.radius + 5), leftCanvas.width - player.radius - 5);
+                        player.y = Math.min(Math.max(player.y, player.radius + 5), leftCanvas.height - player.radius - 5);
+                        enemy.x = Math.min(Math.max(enemy.x, enemy.radius + 5), leftCanvas.width - enemy.radius - 5);
+                        enemy.y = Math.min(Math.max(enemy.y, enemy.radius + 5), leftCanvas.height - enemy.radius - 5);
+                    }
+                    break;
+                }
+            }
+        }
+
+        function updateLivesUI() {
+            const livesDiv = document.getElementById('livesDisplay');
+            let hearts = '';
+            for (let i = 0; i < player.lives; i++) hearts += '❤️ ';
+            for (let i = player.lives; i < 3; i++) hearts += '🖤 ';
+            livesDiv.innerHTML = hearts.trim();
+            if (player.lives <= 0) livesDiv.innerHTML = '💀 💀 💀';
+        }
+
+        function triggerGlobalGameOver(reason) {
+            if (globalGameOver) return;
+            globalGameOver = true;
+            gameActiveLeft = false;
+            gameActiveRight = false;
+            rightGameOver = true;
+            document.getElementById('gameStatusText').innerHTML = reason;
+        }
+
+        // ========== DIBUJADO ==========
+        function drawTriangle() {
+            leftCtx.save();
+            leftCtx.translate(player.x, player.y);
+            leftCtx.rotate(player.angle);
+            leftCtx.beginPath();
+            const size = player.radius * 1.1;
+            leftCtx.moveTo(size, 0);
+            leftCtx.lineTo(-size * 0.7, -size * 0.7);
+            leftCtx.lineTo(-size * 0.7, size * 0.7);
+            leftCtx.closePath();
+            if (invincibilityFrames > 0 && (Math.floor(Date.now() / 50) % 3 === 0)) {
+                leftCtx.fillStyle = "#ffaa88";
+            } else {
+                leftCtx.fillStyle = "#3b82f6";
+            }
+            leftCtx.fill();
+            leftCtx.strokeStyle = "#ffffff";
+            leftCtx.lineWidth = 2;
+            leftCtx.stroke();
+            leftCtx.restore();
+            
+            leftCtx.beginPath();
+            leftCtx.arc(player.x + 6, player.y - 5, 3, 0, Math.PI*2);
+            leftCtx.fillStyle = "#ffffff";
+            leftCtx.fill();
+            leftCtx.fillStyle = "#000000";
+            leftCtx.arc(player.x + 7, player.y - 6, 1.2, 0, Math.PI*2);
+            leftCtx.fill();
+        }
+
+        function drawOval(enemy) {
+            leftCtx.save();
+            leftCtx.translate(enemy.x, enemy.y);
+            leftCtx.rotate(enemy.angle);
+            leftCtx.beginPath();
+            leftCtx.ellipse(0, 0, enemy.radius * 1.2, enemy.radius * 0.9, 0, 0, Math.PI*2);
+            leftCtx.fillStyle = enemy.color;
+            leftCtx.fill();
+            leftCtx.strokeStyle = "#f97316";
+            leftCtx.lineWidth = 2;
+            leftCtx.stroke();
+            // Ojos (direccionales)
+            leftCtx.beginPath();
+            leftCtx.arc(-4, -4, 2.5, 0, Math.PI*2);
+            leftCtx.fillStyle = "#ffffff";
+            leftCtx.fill();
+            leftCtx.fillStyle = "#000000";
+            leftCtx.arc(-3, -5, 1, 0, Math.PI*2);
+            leftCtx.fill();
+            leftCtx.restore();
+        }
+
+        function drawLeftGameStatus() {
+            if (globalGameOver) {
+                leftCtx.font = "bold 20px system-ui";
+                leftCtx.fillStyle = "#ff4444";
+                leftCtx.fillText("GAME OVER", leftCanvas.width/2-70, leftCanvas.height/2);
+                leftCtx.font = "12px monospace";
+                leftCtx.fillStyle = "#cccccc";
+                leftCtx.fillText("Presiona REINICIAR", leftCanvas.width/2-65, leftCanvas.height/2+35);
+            }
+        }
+
+        // ========== CANVAS DERECHO: 2 BOLAS ==========
+        const rightCanvas = document.getElementById('rightCanvas');
+        const rightCtx = rightCanvas.getContext('2d');
+        rightCanvas.width = 350;
+        rightCanvas.height = 500;
+        
+        const RIGHT_FLOOR_Y = rightCanvas.height - 40;
+        const GRAVITY = 0.02;
+        const CLICK_IMPULSO = -7.2;
+        const VELOCIDAD_MAX = 3.2;
+        const BALL_RADIUS = 16;
+        const BALLS_X_RIGHT = [100, 250];
+        const RELEASE_DELAYS_RIGHT = [1.2, 0.0];
+        
+        let ballsRight = [];
+        let ballsReleasedRight = [false, false];
+        let gameStartTimeRight = 0;
+        let gameActiveRight = true;
+        let rightGameOver = false;
+        
+        class BallRight {
+            constructor(x, y, vx, vy, r, id, active) {
+                this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.r = r; this.id = id; this.active = active;
+            }
+        }
+        
+        function initBallsRight() {
+            let arr = [];
+            for (let i=0; i<BALLS_X_RIGHT.length; i++) {
+                arr.push(new BallRight(BALLS_X_RIGHT[i], 70 + i*15, 0, 0, BALL_RADIUS, i, false));
+            }
+            return arr;
+        }
+        
+        function resetRightGame() {
+            gameActiveRight = true;
+            rightGameOver = false;
+            gameStartTimeRight = performance.now();
+            ballsReleasedRight = [false, false];
+            ballsRight = initBallsRight();
+        }
+        
+        function updateBallReleaseRight(now) {
+            if (!gameActiveRight || globalGameOver) return;
+            const elapsed = (now - gameStartTimeRight) / 1000;
+            for (let i=0; i<ballsRight.length; i++) {
+                if (!ballsReleasedRight[i] && elapsed >= RELEASE_DELAYS_RIGHT[i]) {
+                    ballsRight[i].active = true;
+                    ballsReleasedRight[i] = true;
+                }
+            }
+        }
+        
+        function updatePhysicsRight() {
+            if (!gameActiveRight || globalGameOver) return;
+            for (let ball of ballsRight) {
+                if (!ball.active) continue;
+                ball.vy += GRAVITY;
+                ball.y += ball.vy;
+                if (ball.vy > VELOCIDAD_MAX) ball.vy = VELOCIDAD_MAX;
+                if (ball.vy < -VELOCIDAD_MAX) ball.vy = -VELOCIDAD_MAX;
+                
+                if (ball.x - ball.r < 0) { ball.x = ball.r; ball.vx *= -0.7; }
+                if (ball.x + ball.r > rightCanvas.width) { ball.x = rightCanvas.width - ball.r; ball.vx *= -0.7; }
+                
+                if (ball.y + ball.r >= RIGHT_FLOOR_Y) {
+                    triggerGlobalGameOver("💀 GAME OVER - Bola tocó el piso 💀");
+                    return;
+                }
+                if (ball.y - ball.r <= 0) {
+                    ball.y = ball.r;
+                    ball.vy = Math.abs(ball.vy) * 0.4;
+                }
+                ball.vx *= 0.995;
+            }
+        }
+        
+        function handleRightCanvasClick(e) {
+            if (!gameActiveRight || globalGameOver) return;
+            let rect = rightCanvas.getBoundingClientRect();
+            const scaleX = rightCanvas.width / rect.width;
+            const scaleY = rightCanvas.height / rect.height;
+            let mouseX, mouseY;
+            if (e.touches) {
+                mouseX = (e.touches[0].clientX - rect.left) * scaleX;
+                mouseY = (e.touches[0].clientY - rect.top) * scaleY;
+                e.preventDefault();
+            } else {
+                mouseX = (e.clientX - rect.left) * scaleX;
+                mouseY = (e.clientY - rect.top) * scaleY;
+            }
+            for (let i=ballsRight.length-1; i>=0; i--) {
+                const b = ballsRight[i];
+                if (Math.hypot(mouseX - b.x, mouseY - b.y) <= b.r) {
+                    b.vy = CLICK_IMPULSO;
+                    return;
+                }
+            }
+        }
+        
+        function drawRightCanvas() {
+            rightCtx.clearRect(0, 0, rightCanvas.width, rightCanvas.height);
+            rightCtx.fillStyle = "#1e293b";
+            rightCtx.fillRect(0, RIGHT_FLOOR_Y, rightCanvas.width, 8);
+            
+            for (let ball of ballsRight) {
+                rightCtx.fillStyle = ball.active ? "#e34234" : "#b91c1c";
+                rightCtx.beginPath();
+                rightCtx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
+                rightCtx.fill();
+                rightCtx.fillStyle = "#ffffff80";
+                rightCtx.beginPath();
+                rightCtx.arc(ball.x-3, ball.y-3, 3, 0, Math.PI*2);
+                rightCtx.fill();
+            }
+            if (globalGameOver) {
+                rightCtx.font = "bold 18px monospace";
+                rightCtx.fillStyle = "#ffaa88";
+                rightCtx.fillText("GAME OVER", rightCanvas.width/2-55, rightCanvas.height/2);
+            }
+        }
+        
+        // ========== ACTUALIZACIÓN PRINCIPAL ==========
+        function updateLeftFrame() {
+            if (globalGameOver) return;
+            if (gameActiveLeft && player.lives > 0) {
+                updatePlayerMovement();
+                for (let enemy of enemies) {
+                    updateEnemyRotation(enemy);
+                    updateEnemyMovement(enemy);
+                }
+                handleCollisions();
+            }
+        }
+        
+        function drawLeftFrame() {
+            leftCtx.clearRect(0, 0, leftCanvas.width, leftCanvas.height);
+            leftCtx.fillStyle = "#0a0f1e";
+            leftCtx.fillRect(0, 0, leftCanvas.width, leftCanvas.height);
+            leftCtx.strokeStyle = "#334155";
+            leftCtx.lineWidth = 1;
+            for (let i=0; i<10; i++) {
+                leftCtx.beginPath();
+                leftCtx.moveTo(0, i*50);
+                leftCtx.lineTo(leftCanvas.width, i*50);
+                leftCtx.stroke();
+            }
+            for (let enemy of enemies) drawOval(enemy);
+            drawTriangle();
+            drawLeftGameStatus();
+            
+            leftCtx.font = "bold 18px monospace";
+            leftCtx.fillStyle = "#facc15";
+            leftCtx.fillText("VIDAS: "+player.lives, 15, 40);
+            if (invincibilityFrames > 0) {
+                leftCtx.fillStyle = "#ffff99";
+                leftCtx.font = "bold 12px monospace";
+                leftCtx.fillText("INVULNERABLE", player.x-45, player.y-18);
+            }
+        }
+        
+        function fullReset() {
+            globalGameOver = false;
+            player.x = 250; player.y = 250; player.angle = 0; player.lives = 3; gameActiveLeft = true;
+            enemy1.x = 400; enemy1.y = 100; enemy1.angle = 0;
+            enemy2.x = 100; enemy2.y = 400; enemy2.angle = 0;
+            invincibilityFrames = 0;
+            updateLivesUI();
+            resetRightGame();
+            document.getElementById('gameStatusText').innerHTML = "🎮 En juego";
+        }
+        
+        // Eventos
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'w') keys.w = true;
+            if (key === 's') keys.s = true;
+            if (key === 'a') keys.a = true;
+            if (key === 'd') keys.d = true;
+            if (['w','s','a','d'].includes(key)) e.preventDefault();
+        });
+        window.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'w') keys.w = false;
+            if (key === 's') keys.s = false;
+            if (key === 'a') keys.a = false;
+            if (key === 'd') keys.d = false;
+        });
+        
+        rightCanvas.addEventListener('click', handleRightCanvasClick);
+        rightCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleRightCanvasClick(e); });
+        document.getElementById('resetButton').addEventListener('click', () => fullReset());
+        
+        function animate() {
+            const now = performance.now();
+            updateLeftFrame();
+            drawLeftFrame();
+            updateBallReleaseRight(now);
+            updatePhysicsRight();
+            drawRightCanvas();
+            requestAnimationFrame(animate);
+        }
+        
+        fullReset();
+        animate();
+        console.log("Óvalos ahora avanzan SOLO hacia adelante (dirección donde apuntan)");
+    })();
+</script>
+</body>
+</html>
